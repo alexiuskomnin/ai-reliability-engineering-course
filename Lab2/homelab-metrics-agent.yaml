@@ -1,0 +1,103 @@
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: homelab-metrics-agent
+  namespace: kagent
+spec:
+  type: Declarative
+  description: >-
+    Metrics agent for the homelab stack. Queries VictoriaMetrics
+    (PromQL/MetricsQL) via vm-mcp and correlates with Kubernetes resource state.
+  declarative:
+    modelConfig: default-model-config
+    runtime: python
+    deployment:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 1000m
+          memory: 256Mi
+    promptTemplate:
+      dataSources:
+        - alias: builtin
+          kind: ConfigMap
+          name: kagent-builtin-prompts
+    a2aConfig:
+      skills:
+        - id: victoriametrics-querying
+          name: VictoriaMetrics Monitoring & Querying
+          description: >-
+            Generates and executes PromQL/MetricsQL queries against VictoriaMetrics,
+            inspects series/labels/metadata, evaluates alert rules, and interprets
+            the results.
+          tags:
+            - victoriametrics
+            - promql
+            - metricsql
+            - monitoring
+            - metrics
+            - alerting
+            - query
+          examples:
+            - Show me the 99th percentile latency for 'my-service' over the last hour.
+            - Run this MetricsQL — sum(rate(container_cpu_usage_seconds_total[5m])) by (pod) — and explain the result.
+            - Which alert rules are currently firing, and which series triggered them?
+            - What are the highest-cardinality metrics on the cluster right now?
+    systemMessage: |
+      # Homelab Metrics Agent System Prompt
+
+      You are a metrics agent for a Talos/Proxmox homelab Kubernetes cluster. You query **VictoriaMetrics** (PromQL/MetricsQL) via vm-mcp and correlate with Kubernetes resource state.
+
+      ## Core Capabilities
+
+      - **VictoriaMetrics**: PromQL and MetricsQL queries via vm-mcp. Inspect series, labels, metric metadata, alert rules, and recording rules; identify high-cardinality offenders via `top_queries` and `tsdb_status`.
+      - **Kubernetes context**: Read-only cluster inspection via the kagent tool server.
+
+      {{include "builtin/kubernetes-context"}}
+
+      {{include "builtin/tool-usage-best-practices"}}
+
+      ## Tooling Notes
+
+      - Generate queries, validate with `explain_query` / `prettify_query` where applicable, execute, then interpret.
+      - Always state the namespace and time range you are querying.
+      - Use the `documentation` tool when you need authoritative reference for a MetricsQL/PromQL function or operator.
+
+      ## Response format
+
+      - ALWAYS format your response as Markdown.
+      - Include the query you ran, the time range, and the interpretation of the result.
+    tools:
+      - type: McpServer
+        mcpServer:
+          apiGroup: kagent.dev
+          kind: RemoteMCPServer
+          name: kagent-tool-server
+          toolNames:
+            - k8s_get_resources
+            - k8s_get_available_api_resources
+      - type: McpServer
+        mcpServer:
+          apiGroup: kagent.dev
+          kind: RemoteMCPServer
+          name: vm-mcp
+          toolNames:
+            - query
+            - query_range
+            - explain_query
+            - prettify_query
+            - metrics
+            - metrics_metadata
+            - labels
+            - label_values
+            - series
+            - alerts
+            - rules
+            - tsdb_status
+            - metric_statistics
+            - top_queries
+            - active_queries
+            - documentation

@@ -1,0 +1,101 @@
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: homelab-logs-agent
+  namespace: kagent
+spec:
+  type: Declarative
+  description: >-
+    Logs agent for the homelab stack. Queries VictoriaLogs (LogsQL) via
+    vlogs-mcp and correlates with Kubernetes resource state.
+  declarative:
+    modelConfig: default-model-config
+    runtime: python
+    deployment:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 1000m
+          memory: 256Mi
+    promptTemplate:
+      dataSources:
+        - alias: builtin
+          kind: ConfigMap
+          name: kagent-builtin-prompts
+    a2aConfig:
+      skills:
+        - id: victorialogs-querying
+          name: VictoriaLogs Querying
+          description: >-
+            Explores log data in VictoriaLogs using LogsQL — searches log entries,
+            computes statistics, lists streams/fields/values, and correlates
+            log activity with incidents.
+          tags:
+            - victorialogs
+            - logsql
+            - logs
+            - search
+            - debugging
+          examples:
+            - Find error-level logs from the 'checkout-service' over the last 30 minutes.
+            - List all log streams in the 'monitoring' namespace and their hit counts.
+            - What distinct values does the 'level' field take in the last hour?
+            - Plot a 5-minute rate of HTTP 5xx responses from the ingress logs.
+    systemMessage: |
+      # Homelab Logs Agent System Prompt
+
+      You are a logs agent for a Talos/Proxmox homelab Kubernetes cluster. You query **VictoriaLogs** (LogsQL) via vlogs-mcp and correlate with Kubernetes resource state.
+
+      ## Core Capabilities
+
+      - **VictoriaLogs**: LogsQL queries via vlogs-mcp. Retrieve raw log entries (`query`), count hits over time buckets (`hits`), compute statistical aggregations (`stats_query`, `stats_query_range`), enumerate streams and fields.
+      - **Kubernetes context**: Read-only cluster inspection via the kagent tool server.
+
+      {{include "builtin/kubernetes-context"}}
+
+      {{include "builtin/tool-usage-best-practices"}}
+
+      ## Tooling Notes
+
+      - Use `query` to retrieve raw log entries matching a LogsQL filter.
+      - Use `hits` to count log occurrences over time buckets.
+      - Use `stats_query` / `stats_query_range` for statistical aggregations over logs.
+      - Use `streams`, `field_names`, `field_values` to explore log structure before writing queries.
+      - Use the `documentation` tool when you need authoritative reference for a LogsQL function or operator.
+      - Always state the namespace and time range you are querying.
+
+      ## Response format
+
+      - ALWAYS format your response as Markdown.
+      - Include the query you ran, the time range, and the interpretation of the result.
+    tools:
+      - type: McpServer
+        mcpServer:
+          apiGroup: kagent.dev
+          kind: RemoteMCPServer
+          name: kagent-tool-server
+          toolNames:
+            - k8s_get_resources
+            - k8s_get_available_api_resources
+      - type: McpServer
+        mcpServer:
+          apiGroup: kagent.dev
+          kind: RemoteMCPServer
+          name: vlogs-mcp
+          toolNames:
+            - query
+            - hits
+            - stats_query
+            - stats_query_range
+            - streams
+            - stream_field_names
+            - stream_field_values
+            - stream_ids
+            - field_names
+            - field_values
+            - facets
+            - flags
+            - documentation

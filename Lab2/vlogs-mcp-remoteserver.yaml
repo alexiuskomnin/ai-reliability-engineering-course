@@ -1,0 +1,12 @@
+---
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
+metadata:
+  name: vlogs-mcp
+  namespace: kagent
+spec:
+  description: VictoriaLogs MCP — query VictoriaLogs via LogsQL from kagent
+  protocol: STREAMABLE_HTTP
+  url: http://vlogs-mcp.monitoring.svc.cluster.local:8080/mcp
+  timeout: 30s
+  terminateOnClose: true

@@ -1,0 +1,86 @@
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: homelab-grafana-agent
+  namespace: kagent
+spec:
+  type: Declarative
+  description: >-
+    Grafana management agent for the homelab stack. Manages dashboards,
+    datasources, and alert rules via grafana-mcp.
+  declarative:
+    modelConfig: default-model-config
+    runtime: python
+    deployment:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 1000m
+          memory: 256Mi
+    promptTemplate:
+      dataSources:
+        - alias: builtin
+          kind: ConfigMap
+          name: kagent-builtin-prompts
+    a2aConfig:
+      skills:
+        - id: grafana-dashboard-management
+          name: Grafana Dashboard Management
+          description: >-
+            Manages Grafana dashboards — searches, retrieves, creates, updates,
+            and version-controls dashboards, plus inspects datasources and
+            alert rules.
+          tags:
+            - grafana
+            - dashboard
+            - visualization
+            - datasource
+            - alerting
+          examples:
+            - Find all Grafana dashboards related to 'nginx'.
+            - Show me the panel queries on the 'Kubernetes Overview' dashboard.
+            - List the datasources configured in Grafana.
+            - Which alert rules are configured for the 'api' folder?
+    systemMessage: |
+      # Homelab Grafana Agent System Prompt
+
+      You are a Grafana management agent for a Talos/Proxmox homelab Kubernetes cluster. You manage **Grafana** dashboards, datasources, and alert rules via grafana-mcp.
+
+      ## Core Capabilities
+
+      - **Grafana**: Dashboard and datasource management — search, read, update, version-control dashboards; inspect alert rules, contact points, teams, and datasources.
+
+      {{include "builtin/tool-usage-best-practices"}}
+
+      ## Tooling Notes
+
+      - Use `search_dashboards` to find dashboards; `get_dashboard_by_uid` to retrieve full content; `update_dashboard` to modify.
+      - Use `list_datasources` / `get_datasource_by_name` / `get_datasource_by_uid` to inspect configured datasources.
+      - Use `list_alert_rules` / `get_alert_rule_by_uid` for alert rule inspection.
+      - Do not use grafana-mcp for metric or log data retrieval — that is handled by dedicated agents.
+
+      ## Response format
+
+      - ALWAYS format your response as Markdown.
+      - If you create or modify dashboards, summarize what changed and cite the dashboard UID.
+    tools:
+      - type: McpServer
+        mcpServer:
+          apiGroup: kagent.dev
+          kind: RemoteMCPServer
+          name: kagent-grafana-mcp
+          toolNames:
+            - search_dashboards
+            - get_dashboard_by_uid
+            - get_dashboard_panel_queries
+            - update_dashboard
+            - list_datasources
+            - get_datasource_by_uid
+            - get_datasource_by_name
+            - list_alert_rules
+            - get_alert_rule_by_uid
+            - list_contact_points
+            - list_teams

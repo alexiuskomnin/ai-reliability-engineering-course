@@ -3,7 +3,44 @@
 ## Початківці
 
 ### 1. Встановити agentgateway локально https://agentgateway.dev/docs/standalone/latest/deployment/binary/
-> Я одразу пішов по книжці *AI-Agents-in-Kubernetes-1stEdition-2025_10.pdf* тому пропущу частину з бінарником, одразу деплоїв як хельм чарт через флюкс [(секція Досвідчені.1)](#1-виконати-завдання-початківців-але-як-helm-deployment-в-kubernetes-кластері)
+
+`config.yaml`
+```yaml
+llm:
+  port: 4000
+  models:
+  - name: "gemma4:e4b-it-q8_0"
+    provider: openAI
+    params:
+      hostOverride: "localhost:11434"
+  - name: "qwen3.5:9b-q8_0"
+    provider: openAI
+    params:
+      hostOverride: "localhost:11434"
+binds:
+- port: 3000
+  listeners:
+  - routes:
+    - policies:
+        cors:
+          allowOrigins:
+          - "*"
+          allowHeaders:
+          - mcp-protocol-version
+          - content-type
+          - cache-control
+          exposeHeaders:
+          - "Mcp-Session-Id"
+      backends:
+      - mcp:
+          targets:
+          - name: everything
+            stdio:
+              cmd: npx
+              args: ["@modelcontextprotocol/server-everything"]
+```
+> Я одразу пішов по книжці *AI-Agents-in-Kubernetes-1stEdition-2025_10.pdf* одразу деплоїв як хельм чарт через флюкс [(секція Досвідчені.1)](#1-виконати-завдання-початківців-але-як-helm-deployment-в-kubernetes-кластері) тому наступні приклади будуть через CRD 
+
 
 ### 2. Обрати llm провайдера https://agentgateway.dev/docs/standalone/latest/llm/providers/
 > Так як на даний момент є доступ до пк з 4090 обрав Ollama де запускаю Gemma4:26b або Qwen3.5:30b. В даному конфігу заекспоузив обмежений набір шляхів, щоб запобігти керування оллама моделями через апі, вказавши лише необхідні шляхи для використання існуючий моделей
@@ -175,7 +212,40 @@ curl https://ollama.talos-aw.home.oydev.me/v1/chat/completions \
 }
 ```
 
-> 
+`mcp-federation/backend.yaml` та httproute в секції [](#1-виконати-завдання-досвідчених-але-з-gateway-api-httpsagentgatewaydevdocskubernetesmainaboutgateway-api)
+
+```yaml
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: mcp-federation
+  namespace: monitoring
+spec:
+  mcp:
+    sessionRouting: Stateful
+    failureMode: FailOpen
+    targets:
+      - name: vm
+        static:
+          host: vm-mcp.monitoring.svc.cluster.local
+          port: 8080
+          path: /mcp
+          protocol: StreamableHTTP
+      - name: vlogs
+        static:
+          host: vlogs-mcp.monitoring.svc.cluster.local
+          port: 8080
+          path: /mcp
+          protocol: StreamableHTTP
+      - name: grafana
+        static:
+          host: kagent-grafana-mcp.kagent.svc.cluster.local
+          port: 8000
+          path: /mcp
+          protocol: StreamableHTTP
+
+```
 
 ## Досвідчені
 
@@ -253,8 +323,6 @@ spec:
       namespace: cert-manager
     type: Opaque
 ```
-
-> Звісно, kubeseal не ідеальний варіант, бо зараз наче вже SOPS+age, більш `модний` і в flux є функціонал по розшифровці, але поки як є...
 
 ### 3. Розгорнути kagent https://kagent.dev/docs/kagent/getting-started/quickstart
 
@@ -405,13 +473,11 @@ spec:
 
 ![alt text](cilium.png)
 
-> Вирішив погратись і переробив дефолтного обзервабіліти агента під Вікторію Метрікс та Логс спорядивши необхідним інструментарієм 
-
 ## Макс
 
 ### 1. Виконати завдання досвідчених але з gateway API https://agentgateway.dev/docs/kubernetes/main/about/gateway-api/
 
-> Я в цілому одразу деплоїв agentgateway з gateway API, `gateway-api-crds.yaml` налаштування самого Gateway API і `gateway.yaml` налаштував 
+> Я в цілому одразу деплоїв agentgateway з gateway API, `gateway-api-crds.yaml` налаштування самого Gateway API і `gateway.yaml`
 
 `gateway-api-crds.yaml`
 
@@ -486,6 +552,28 @@ spec:
                 values:
                   - monitoring
                   - kagent
+```
+
+`mcp-federatior.yaml/httproute.yaml`
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mcp-federation
+  namespace: monitoring
+spec:
+  parentRefs:
+    - name: ai-gateway
+      namespace: agentgateway-system
+      sectionName: https
+  hostnames:
+    - mcp.talos-aw.home.oydev.me
+  rules:
+    - backendRefs:
+        - group: agentgateway.dev
+          kind: AgentgatewayBackend
+          name: mcp-federation
 ```
 
 ## Research-1: Дати оцінку ADR проекту S&T: DevOps Bot/Agent

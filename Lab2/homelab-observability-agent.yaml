@@ -1,0 +1,136 @@
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: homelab-observability-agent
+  namespace: kagent
+spec:
+  type: Declarative
+  description: >-
+    Observability orchestrator for the homelab stack. Routes metric queries to
+    homelab-metrics-agent, log queries to homelab-logs-agent, and dashboard
+    management to homelab-grafana-agent.
+  declarative:
+    modelConfig: default-model-config
+    runtime: python
+    deployment:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 1000m
+          memory: 256Mi
+    promptTemplate:
+      dataSources:
+        - alias: builtin
+          kind: ConfigMap
+          name: kagent-builtin-prompts
+    a2aConfig:
+      skills:
+        - id: victoriametrics-querying
+          name: VictoriaMetrics Monitoring & Querying
+          description: >-
+            Generates and executes PromQL/MetricsQL queries against VictoriaMetrics,
+            inspects series/labels/metadata, evaluates alert rules, and interprets
+            the results.
+          tags:
+            - victoriametrics
+            - promql
+            - metricsql
+            - monitoring
+            - metrics
+            - alerting
+            - query
+          examples:
+            - Show me the 99th percentile latency for 'my-service' over the last hour.
+            - Run this MetricsQL — sum(rate(container_cpu_usage_seconds_total[5m])) by (pod) — and explain the result.
+            - Which alert rules are currently firing, and which series triggered them?
+            - What are the highest-cardinality metrics on the cluster right now?
+        - id: victorialogs-querying
+          name: VictoriaLogs Querying
+          description: >-
+            Explores log data in VictoriaLogs using LogsQL — searches hits,
+            computes statistics, lists streams/fields/values, and correlates
+            log activity with incidents.
+          tags:
+            - victorialogs
+            - logsql
+            - logs
+            - search
+            - debugging
+          examples:
+            - Find error-level logs from the 'checkout-service' over the last 30 minutes.
+            - List all log streams in the 'monitoring' namespace and their hit counts.
+            - What distinct values does the 'level' field take in the last hour?
+            - Plot a 5-minute rate of HTTP 5xx responses from the ingress logs.
+        - id: grafana-dashboard-management
+          name: Grafana Dashboard Management
+          description: >-
+            Manages Grafana dashboards — searches, retrieves, creates, updates,
+            and version-controls dashboards, plus inspects datasources and
+            alert rules.
+          tags:
+            - grafana
+            - dashboard
+            - visualization
+            - datasource
+            - alerting
+          examples:
+            - Find all Grafana dashboards related to 'nginx'.
+            - Show me the panel queries on the 'Kubernetes Overview' dashboard.
+            - List the datasources configured in Grafana.
+            - Which alert rules are configured for the 'api' folder?
+        - id: kubernetes-observability-insights
+          name: Kubernetes Observability Insights
+          description: >-
+            Correlates Kubernetes resource state with VictoriaMetrics metrics
+            and VictoriaLogs logs to investigate performance issues, pod
+            restarts, and service degradations.
+          tags:
+            - kubernetes
+            - observability
+            - troubleshooting
+            - performance
+            - correlation
+          examples:
+            - The 'checkout-service' pods are restarting — correlate the events with metrics and logs.
+            - Show resource utilization for nodes labeled 'workload=critical' alongside their recent events.
+            - Which workloads in 'prod' have the highest log-error rate right now?
+    systemMessage: |
+      # Homelab Observability Agent System Prompt
+
+      You are an observability orchestrator for a Talos/Proxmox homelab Kubernetes cluster. You coordinate three specialized sub-agents to answer observability questions.
+
+      ## Sub-agents
+
+      - **homelab-metrics-agent**: Queries VictoriaMetrics (PromQL/MetricsQL). Use for metric queries, alert rules, TSDB inspection, and any question involving time-series data.
+      - **homelab-logs-agent**: Queries VictoriaLogs (LogsQL). Use for log retrieval, hit counts, log statistics, and stream/field exploration.
+      - **homelab-grafana-agent**: Manages Grafana. Use for dashboard search/read/update, datasource inspection, and alert rule management — not for data retrieval.
+
+      {{include "builtin/kubernetes-context"}}
+
+      {{include "builtin/tool-usage-best-practices"}}
+
+      ## Routing guidelines
+
+      - Metric questions → homelab-metrics-agent
+      - Log questions → homelab-logs-agent
+      - Dashboard / datasource / alert-rule management → homelab-grafana-agent
+      - Cross-signal investigations (correlate metrics + logs) → call both homelab-metrics-agent and homelab-logs-agent, then synthesize the results
+
+      ## Response format
+
+      - ALWAYS format your response as Markdown.
+      - Cite which sub-agent provided each piece of information.
+      - Include queries run, time ranges, and interpretations.
+    tools:
+      - type: Agent
+        agent:
+          name: homelab-metrics-agent
+      - type: Agent
+        agent:
+          name: homelab-logs-agent
+      - type: Agent
+        agent:
+          name: homelab-grafana-agent
