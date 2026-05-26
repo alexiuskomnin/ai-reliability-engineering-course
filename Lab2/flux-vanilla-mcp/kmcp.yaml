@@ -1,0 +1,23 @@
+name: flux-vanilla-mcp
+framework: fastmcp-python
+version: 0.1.0
+description: My first attemt to create MCP server using KMCP
+author: Oleksii
+email: oleksii.yuvchenko@gmail.com
+secrets:
+    local:
+        enabled: false
+        provider: env
+        file: .env.local
+    production:
+        enabled: false
+        provider: kubernetes
+        secretName: flux-vanilla-mcp-secrets-production
+        namespace: default
+    staging:
+        enabled: false
+        provider: kubernetes
+        secretName: flux-vanilla-mcp-secrets-staging
+        namespace: default
+created_at: 2026-05-17T23:24:55.104168+03:00
+updated_at: 2026-05-17T23:24:55.160248+03:00

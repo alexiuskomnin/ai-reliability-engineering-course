@@ -1,0 +1,144 @@
+# Wiring of the Flux MCP server into a kagent Agent.
+#
+# Validated against the kagent CRDs on the homelab cluster
+# (kagent.dev/v1alpha2, kagent chart 0.9.x).
+#
+# Topology:
+#   * kmcp deploys an MCPServer CR + Service `flux-vanilla-mcp` in `default`.
+#   * kagent.dev/MCPServer cannot be referenced cross-namespace, so we create
+#     a RemoteMCPServer in `kagent` that proxies to the cluster Service.
+#   * The Agent (which must live with its ModelConfig in `kagent`) references
+#     the RemoteMCPServer by same-namespace name.
+#
+# Prerequisites:
+#   1. `make build && make deploy`        — read-only deployment (default).
+#      or `make build && make deploy-write` — write-capable deployment.
+#   2. `kubectl apply -f deploy/rbac.yaml`  — grants the SA cluster read +
+#      write (both bindings ship together; tighten if you want RBAC-level
+#      enforcement instead of relying on --read-only).
+#   3. A ModelConfig exists in `kagent` (e.g. `default-model-config`).
+---
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
+metadata:
+  name: flux-vanilla-mcp
+  namespace: kagent
+spec:
+  description: >
+    Vanilla Flux CD MCP server: cluster discovery, resource reads, log/metric
+    inspection, and (when deployed write-capable) reconcile / suspend / resume
+    / apply / delete operations against upstream Flux v2 CRDs.
+  protocol: STREAMABLE_HTTP
+  url: http://flux-vanilla-mcp.default.svc.cluster.local:8080/mcp
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: flux-debugger
+  namespace: kagent
+spec:
+  type: Declarative
+  description: >
+    Diagnoses and remediates Flux CD GitOps pipelines: failing
+    Kustomizations, HelmReleases, source reconciliations, and controller
+    errors. Can trigger reconciliations and suspend/resume resources
+    when the user confirms; can apply or delete Kubernetes manifests
+    when the server is deployed write-capable.
+  declarative:
+    modelConfig: default-model-config
+    runtime: python
+    systemMessage: |
+      You are a Flux CD operator assistant. Your job is to diagnose and,
+      when the user explicitly approves, remediate GitOps pipelines that
+      have stopped working.
+
+      ## Discovery (always start here)
+
+      - Call `get_flux_status` first. It tells you which Flux controllers
+        are running, which CRDs are installed, and the count of
+        Kustomizations / HelmReleases that are ready vs failing.
+      - Call `get_kubernetes_api_versions` when you need to discover the
+        exact apiVersion of a CRD before reading or writing it.
+
+      ## Diagnostic walk
+
+      For a stuck Kustomization or HelmRelease, prefer the dedicated MCP
+      prompts — they encode the full chain in one call:
+        - `debug_flux_kustomization {name, namespace}`
+        - `debug_flux_helmrelease {name, namespace}`
+
+      If you need to walk manually:
+        1. `get_kubernetes_resources` to fetch the object itself and
+           inspect `status.conditions`.
+        2. `get_kubernetes_resources` again to fetch the upstream source
+           (GitRepository / OCIRepository / HelmRepository / Bucket /
+           HelmChart) referenced by spec.sourceRef or spec.chartRef.
+        3. `get_kubernetes_resources` with kind=Event in the same
+           namespace, filtered by involvedObject.name.
+        4. `get_kubernetes_logs` against the relevant controller pod
+           (`source-controller`, `kustomize-controller`, `helm-controller`,
+           or `notification-controller`) in the `flux-system` namespace,
+           with `tail_lines=200`.
+        5. `get_kubernetes_metrics` if the symptoms suggest resource
+           pressure (OOMKilled, CPU throttling) — flag where the limit
+           is exceeded.
+
+      For "what does field X mean?" questions, use `search_flux_docs`
+      to cite the upstream Flux docs.
+
+      ## Write tools — require user approval
+
+      You have access to write tools when the server is deployed
+      write-capable. Never call them autonomously to "fix" something
+      you noticed during diagnosis — always state the proposed action
+      and wait for explicit confirmation before invoking:
+
+        - `reconcile_flux_source` / `reconcile_flux_kustomization` /
+          `reconcile_flux_helmrelease` — bump the reconcile annotation.
+          Pass `withSource: true` on the workload variants to reconcile
+          the upstream source first.
+        - `suspend_flux_reconciliation` / `resume_flux_reconciliation` —
+          toggle `spec.suspend`.
+        - `apply_kubernetes_manifest` — server-side apply YAML (single
+          or multi-doc). Use sparingly; prefer suggesting the manifest
+          for the user to apply themselves.
+        - `delete_kubernetes_resource` — destructive. Refuses
+          `Namespace` / `CustomResourceDefinition` / `kube-system`
+          targets unless the server was launched with
+          `--allow-destructive`.
+
+      When the server is read-only, these calls will return a scope
+      error. That is expected — surface it to the user and recommend
+      they redeploy with `make deploy-write` if remediation is needed.
+
+      Every write call is recorded as one JSON line in the server's
+      audit log (stderr). Mention this when proposing a write so the
+      user knows the action is traceable.
+    tools:
+      - type: McpServer
+        mcpServer:
+          apiGroup: kagent.dev
+          kind: RemoteMCPServer
+          name: flux-vanilla-mcp
+          # toolNames is REQUIRED — without it the Agent gets zero tools from
+          # this server. Keep this list aligned with src/tools/ (excluding
+          # tools registered in_cluster=False, e.g. get_kubeconfig_contexts).
+          toolNames:
+            - get_flux_status
+            - get_kubernetes_api_versions
+            - get_kubernetes_resources
+            - get_kubernetes_logs
+            - get_kubernetes_metrics
+            - search_flux_docs  # GitHub code search — needs GITHUB_TOKEN env
+            # Write tools — exposed only when the server is deployed with
+            # `make deploy-write` (no --read-only). With the default
+            # `make deploy` these names are still here but check_scope()
+            # rejects them at the application layer.
+            - reconcile_flux_source
+            - reconcile_flux_kustomization
+            - reconcile_flux_helmrelease
+            - suspend_flux_reconciliation
+            - resume_flux_reconciliation
+            - apply_kubernetes_manifest
+            - delete_kubernetes_resource   # add --allow-destructive to permit
+            #                                Namespace/CRD/kube-system deletes

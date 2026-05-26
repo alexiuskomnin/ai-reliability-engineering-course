@@ -1,0 +1,101 @@
+# RBAC for the Flux MCP server when deployed in-cluster via `kmcp deploy`.
+#
+# Scope:
+#   * Read access to all upstream Flux v2 CRs and CRDs.
+#   * Read access to pods, pod logs, events, namespaces, deployments,
+#     configmaps, and pod/node metrics.
+#   * Patch access to the four Flux groups (for annotation-based
+#     reconcile/suspend/resume) — comment out the write rules to enforce
+#     read-only at the RBAC layer in addition to --read-only=true.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: flux-vanilla-mcp
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: flux-vanilla-mcp:read
+rules:
+  - apiGroups: ["source.toolkit.fluxcd.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["helm.toolkit.fluxcd.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["notification.toolkit.fluxcd.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["image.toolkit.fluxcd.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources:
+      - pods
+      - pods/log
+      - events
+      - namespaces
+      - configmaps
+      - services
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list"]
+---
+# Write rules — required only when the server is NOT started with --read-only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: flux-vanilla-mcp:write
+rules:
+  - apiGroups:
+      - source.toolkit.fluxcd.io
+      - kustomize.toolkit.fluxcd.io
+      - helm.toolkit.fluxcd.io
+      - notification.toolkit.fluxcd.io
+      - image.toolkit.fluxcd.io
+    resources: ["*"]
+    verbs: ["patch"]
+  # apply_kubernetes_manifest / delete_kubernetes_resource — narrow this if
+  # you want to constrain what the assistant can mutate.
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["create", "patch", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: flux-vanilla-mcp:read
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: flux-vanilla-mcp:read
+subjects:
+  - kind: ServiceAccount
+    name: flux-vanilla-mcp
+    namespace: default
+---
+# Apply only when running with --read-only=false.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: flux-vanilla-mcp:write
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: flux-vanilla-mcp:write
+subjects:
+  - kind: ServiceAccount
+    name: flux-vanilla-mcp
+    namespace: default
